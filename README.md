@@ -1,0 +1,695 @@
+[index.html](https://github.com/user-attachments/files/30073058/index.html)
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <title>MSF 教学咨询匹配</title>
+  <link rel="icon" href="data:,">
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #f7f8fa; }
+    .container { max-width: 500px; margin: 0 auto; padding: 16px; padding-bottom: 120px; }
+    .card { background: #fff; border-radius: 12px; padding: 16px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    .name-tag { font-weight: bold; font-size: 18px; }
+    .status-badge { display: inline-block; padding: 2px 12px; border-radius: 12px; font-size: 12px; color: #fff; }
+    .status-available { background: #07c160; }
+    .status-matched { background: #1989fa; }
+    .empty-text { text-align: center; color: #999; padding: 40px 0; }
+    .btn-row { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+    .fixed-bottom { position: fixed; bottom: 0; left: 50%; transform: translateX(-50%); width: 100%; max-width: 500px; background: #fff; border-top: 1px solid #eee; display: flex; justify-content: space-around; padding: 8px 0; z-index: 100; }
+    button { background: #1989fa; color: white; border: none; border-radius: 8px; padding: 10px 14px; font-size: 15px; cursor: pointer; }
+    button:active { opacity: 0.8; }
+    button.danger { background: #ff4757; }
+    button.small { padding: 6px 10px; font-size: 13px; }
+    input, select, textarea { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 16px; margin: 4px 0; }
+    .day-block { margin-bottom: 12px; background: #f9f9f9; padding: 8px; border-radius: 8px; }
+    .day-title { font-weight: bold; margin-bottom: 4px; }
+    .course-row { display: flex; gap: 6px; align-items: center; margin-bottom: 4px; }
+    .course-row input { flex: 1; }
+    .course-row button { padding: 6px 10px; font-size: 14px; }
+    .add-course-btn { background: #07c160; color: white; padding: 8px; border-radius: 6px; font-size: 14px; cursor: pointer; display: inline-block; margin-top: 4px; }
+    .admin-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 16px; }
+    .admin-table th, .admin-table td { border: 1px solid #ddd; padding: 6px; text-align: left; }
+    .admin-table th { background: #f1f1f1; }
+    .admin-section { margin-bottom: 20px; }
+
+    /* 介绍页遮罩 */
+    .intro-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 200; display: flex; justify-content: center; align-items: flex-start; padding-top: 10vh; }
+    .intro-card { background: #fff; border-radius: 16px; width: 90%; max-width: 500px; max-height: 80vh; overflow-y: auto; padding: 24px 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); }
+    .intro-card h2 { font-size: 20px; margin-bottom: 16px; text-align: center; color: #1989fa; }
+    .intro-card h3 { font-size: 16px; margin: 12px 0 6px; color: #333; }
+    .intro-card p, .intro-card li { font-size: 14px; line-height: 1.6; color: #555; margin-bottom: 6px; }
+    .intro-card ul { padding-left: 20px; margin-bottom: 8px; }
+    .intro-close { position: absolute; top: 12px; right: 16px; background: #666; color: white; border: none; border-radius: 50%; width: 32px; height: 32px; font-size: 18px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <!-- 加载中 -->
+    <div v-if="view === 'loading'" class="container" style="text-align:center; padding-top: 100px;">
+      <p style="color:#666;">正在连接...</p>
+    </div>
+
+    <!-- 注册页 -->
+    <div v-else-if="view === 'register'" class="container">
+      <div class="card">
+        <h2 style="margin-bottom:16px;">👋 欢迎，请先登记</h2>
+        <div>
+          <label>姓名：</label>
+          <input v-model="regName" placeholder="请输入姓名" />
+        </div>
+        <div>
+          <label>身份：</label>
+          <select v-model="regRole">
+            <option value="student">我是学员</option>
+            <option value="expert">我是咨询专家</option>
+          </select>
+        </div>
+        <button @click="handleRegister" style="width:100%; margin-top:12px;">确认登记</button>
+      </div>
+    </div>
+
+    <!-- 学员主页 -->
+    <div v-else-if="view === 'student'" class="container">
+      <div class="card" v-if="student.status === 'matched'">
+        <div class="name-tag">🎓 学员 {{ student.name }}</div>
+        <span class="status-badge status-matched">已匹配</span>
+        <div style="margin-top:12px;">指导专家：<strong>{{ matchedExpertName }}</strong></div>
+        <div v-if="scheduleData && Object.keys(scheduleData).length > 0" style="margin-top:12px;">
+          <div style="font-weight:bold;">我的课表：</div>
+          <div v-for="(courses, day) in scheduleData" :key="day" class="day-block">
+            <div class="day-title">{{ dayLabels[day] || day }}</div>
+            <div v-for="(c, idx) in courses" :key="idx">{{ c.time }} {{ c.course }}</div>
+            <div v-if="!courses || courses.length === 0" style="color:#999;">无课</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" v-else>
+        <div class="name-tag">🎓 学员 {{ student.name }}</div>
+        <span class="status-badge status-available">待匹配</span>
+        <div style="margin-top:16px;">
+          <div style="font-weight:bold; margin-bottom:12px;">📅 编辑你的每周课表</div>
+          <div v-for="day in daysOfWeek" :key="day" class="day-block">
+            <div class="day-title">{{ dayLabels[day] || day }}</div>
+            <div v-if="scheduleForm[day] && scheduleForm[day].length > 0">
+              <div v-for="(item, index) in scheduleForm[day]" :key="index" class="course-row">
+                <input v-model="item.time" placeholder="时间 (如 08:00-09:30)" />
+                <input v-model="item.course" placeholder="课程名称" />
+                <button class="danger" @click="removeCourse(day, index)">删除</button>
+              </div>
+            </div>
+            <div v-else style="color:#999; font-size:14px;">暂无课程</div>
+            <span class="add-course-btn" @click="addCourse(day)">+ 添加课程</span>
+          </div>
+          <button @click="saveSchedule" style="width:100%; margin-top:16px;">💾 保存课表</button>
+          <p style="font-size:12px; color:#999; margin-top:8px;">保存后，专家可看到你的课表时间。</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- 专家主页 -->
+    <div v-else-if="view === 'expert'" class="container">
+      <div class="card" v-if="expert.status === 'matched'">
+        <div class="name-tag">👨‍🏫 专家 {{ expert.name }}</div>
+        <span class="status-badge status-matched">已匹配</span>
+        <div style="margin-top:12px;">您已匹配学员：<strong>{{ matchedStudentName }}</strong></div>
+        <div v-if="matchedStudentSchedule && Object.keys(matchedStudentSchedule).length > 0" style="margin-top:12px;">
+          <div style="font-weight:bold;">学员课表：</div>
+          <div v-for="(courses, day) in matchedStudentSchedule" :key="day" class="day-block">
+            <div class="day-title">{{ dayLabels[day] || day }}</div>
+            <div v-for="(c, idx) in courses" :key="idx">{{ c.time }} {{ c.course }}</div>
+            <div v-if="!courses || courses.length === 0" style="color:#999;">无课</div>
+          </div>
+        </div>
+      </div>
+
+      <div v-else>
+        <div class="card">
+          <div class="name-tag">👨‍🏫 专家 {{ expert.name }}</div>
+          <span class="status-badge status-available">待匹配</span>
+          <div style="margin-top:8px;color:#666;">请从下方选择一位学员</div>
+        </div>
+
+        <div v-if="availableStudents.length > 0">
+          <div class="card" v-for="stu in availableStudents" :key="stu.id">
+            <div class="name-tag">{{ stu.name }}</div>
+            <div v-if="getStudentSchedule(stu) && Object.keys(getStudentSchedule(stu)).length > 0" style="margin-top:8px; font-size:14px;">
+              <div v-for="(courses, day) in getStudentSchedule(stu)" :key="day">
+                <strong>{{ dayLabels[day] || day }}：</strong>
+                <span v-if="courses && courses.length > 0">
+                  <span v-for="(c, i) in courses" :key="i">{{ c.time }} {{ c.course }}<span v-if="i < courses.length-1">；</span></span>
+                </span>
+                <span v-else style="color:#999;">无课</span>
+              </div>
+            </div>
+            <div v-else style="color:#999; font-size:14px;">暂未填写课表</div>
+            <div class="btn-row">
+              <button @click="matchStudent(stu)" :disabled="matchingId === stu.id" style="flex:1;">选择该学员</button>
+            </div>
+          </div>
+        </div>
+        <div v-else class="empty-text">暂无可选学员</div>
+      </div>
+    </div>
+
+    <!-- 管理面板 -->
+    <div v-else-if="view === 'admin'" class="container">
+      <div class="card">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <h2>🛠️ 管理面板</h2>
+          <button @click="logoutAdmin" class="small">退出管理</button>
+        </div>
+        <p style="color:#666; font-size:14px; margin-top:8px;">注意：删除操作不可恢复，请谨慎操作。</p>
+        <button @click="exportMatchesToExcel" style="margin-top:12px; background:#07c160;">📥 导出匹配结果为 Excel</button>
+      </div>
+
+      <div class="admin-section">
+        <h3 style="margin-bottom:8px;">学员列表</h3>
+        <table class="admin-table">
+          <thead><tr><th>姓名</th><th>状态</th><th>操作</th></tr></thead>
+          <tbody>
+            <tr v-for="s in adminStudents" :key="s.id">
+              <td>{{ s.name }}</td>
+              <td>{{ s.status }}</td>
+              <td><button class="danger small" @click="deleteStudent(s.id)">删除</button></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="admin-section">
+        <h3 style="margin-bottom:8px;">专家列表</h3>
+        <table class="admin-table">
+          <thead><tr><th>姓名</th><th>状态</th><th>操作</th></tr></thead>
+          <tbody>
+            <tr v-for="e in adminExperts" :key="e.id">
+              <td>{{ e.name }}</td>
+              <td>{{ e.status }}</td>
+              <td><button class="danger small" @click="deleteExpert(e.id)">删除</button></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="admin-section">
+        <h3 style="margin-bottom:8px;">匹配记录</h3>
+        <table class="admin-table">
+          <thead><tr><th>专家</th><th>学员</th><th>时间</th><th>操作</th></tr></thead>
+          <tbody>
+            <tr v-for="m in adminMatches" :key="m.id">
+              <td>{{ m.expert_name }}</td>
+              <td>{{ m.student_name }}</td>
+              <td>{{ formatTime(m.created_at) }}</td>
+              <td><button class="danger small" @click="deleteMatch(m.id)">删除</button></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 底部导航 -->
+    <div class="fixed-bottom">
+      <button @click="switchToHome" style="background:#fff; color:#1989fa; border:1px solid #1989fa; padding:8px 16px; border-radius:20px; font-size:14px;">我的主页</button>
+      <button @click="switchToBoard"
+              @contextmenu.prevent
+              @mousedown="startAdminTimer"
+              @mouseup="cancelAdminTimer"
+              @touchstart="startAdminTimer"
+              @touchend="cancelAdminTimer"
+              style="background:#1989fa; color:#fff; padding:8px 16px; border-radius:20px; font-size:14px;">📋 匹配公示</button>
+    </div>
+
+    <!-- 公示板 -->
+    <div v-if="showBoard" class="container" style="padding-bottom:100px;">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <h2>📋 匹配公示</h2>
+        <button @click="showBoard = false" style="background:#666; padding:6px 12px; font-size:14px;">关闭</button>
+      </div>
+      <div v-if="matches.length === 0" class="empty-text">暂无匹配记录</div>
+      <div class="card" v-for="m in matches" :key="m.id">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <div>
+            <strong>{{ m.expert_name }}</strong> 👉 <strong>{{ m.student_name }}</strong>
+          </div>
+        </div>
+        <div style="font-size:12px;color:#999;margin-top:4px;">{{ formatTime(m.created_at) }}</div>
+      </div>
+    </div>
+
+    <!-- 主页介绍页面（遮罩层） -->
+    <div v-if="showIntro" class="intro-overlay" @click.self="closeIntro">
+      <div class="intro-card">
+        <button class="intro-close" @click="closeIntro">✕</button>
+        <h2>广东外语外贸大学<br>“教学发展进课堂”MSF咨询服务</h2>
+        <h3>一、服务特色</h3>
+        <p><strong>1. 提供私密个性化咨询服务。</strong><br>咨询师为咨询者提供专属个性化一对一咨询服务，咨询过程仅有咨询师参与，咨询报告只对教师本人公开，让教师极具安全感能够敞开心扉接受外来的信息和建议，助力教师成长。</p>
+        <p><strong>2. 收集学生真实反馈。</strong><br>服务过程中咨询师作为第三方进入课堂，采取“任课教师回避、第三方进课堂”的方式，能快速打消学生顾虑，收集更加真实、客观、有代表性的学生意见。</p>
+        <p><strong>3. 提供咨询者建设性意见。</strong><br>咨询师将与教师共同探讨，引导教师积极反思教学，提供行之有效的建议，寻找到教学改进策略与方法。</p>
+        <h3>二、服务流程</h3>
+        <ol style="padding-left:20px; margin-bottom:8px;">
+          <li><strong>前期会谈</strong> – 咨询师提前向专任老师了解课程和课堂的基本信息，简要介绍MSF的具体做法，建立彼此信任关系。</li>
+          <li><strong>课堂观摩</strong> – 咨询师按照约定时间到课堂观摩，客观记录教师和学生课堂的教与学行为。</li>
+          <li><strong>收集反馈</strong> – 在教师离场的情况下，咨询师组织学生讨论和发言，并通过改善群体决策的方法梳理、汇总调查意见。</li>
+          <li><strong>创建报告</strong> – 咨询师根据观察记录和学生反馈信息，提炼归纳，创建个性化课堂报告。</li>
+          <li><strong>后期会谈</strong> – 咨询师与教师约定时间，提供课堂报告，引导教师发现问题及思考解决办法，适时提供咨询建议，协同反思。</li>
+          <li><strong>后续跟踪</strong> – 在学期的期末，中心或咨询师将根据教师需求，跟踪教师课堂改进情况。</li>
+        </ol>
+        <h3>三、服务对象</h3>
+        <p>“中期学生反馈”教学咨询服务面向所有一线教师开展，其服务对象包括但不限于：</p>
+        <ul>
+          <li>2025年新入职教师：尽快实现与学生进行有效沟通、有效达成教学目标；</li>
+          <li>参加各类教学竞赛的青年教师：积累多维度的教学实践素材与依据；</li>
+          <li>资深教师：收集教学学术数据与案例，开展教学研究工作，推进高质量教学；</li>
+          <li>其他有教学咨询需求的老师：有效完善当期教学设计，促进教学改革与创新。</li>
+        </ul>
+        <h3>四、咨询团队</h3>
+        <p>咨询团队由教学经验丰富、教学效果显著、沟通能力突出、热心教师教学发展且经过MSF专业培训的教师组成，并包括获得ISW、FDW国际认证的教学咨询员团队，将竭诚为我校一线教师服务。</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- 依赖库 -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/vue@3/dist/vue.global.prod.js"></script>
+
+  <script>
+    // ==================== 配置 ====================
+    const SUPABASE_URL = 'https://esmyctooinmeqwaapaek.supabase.co';
+    const SUPABASE_ANON_KEY = 'sb_publishable_p8i5kWPiwnkYgWMxjqx9OQ_8p8U_Tro';
+    const ADMIN_PASSWORD = 'msf2024';
+    // ==============================================
+
+    const { createClient } = window.supabase;
+    const supa = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    const DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+    const DAY_LABELS = {
+      monday: '周一', tuesday: '周二', wednesday: '周三', thursday: '周四',
+      friday: '周五', saturday: '周六', sunday: '周日'
+    };
+
+    function parseSchedule(str) {
+      if (!str || str === '') return {};
+      try {
+        const obj = JSON.parse(str);
+        return obj && typeof obj === 'object' ? obj : {};
+      } catch (e) { return {}; }
+    }
+
+    const app = Vue.createApp({
+      data() {
+        return {
+          view: 'loading',
+          showBoard: false,
+          showIntro: false,
+          user: null,
+          userRecord: null,
+          regName: '',
+          regRole: 'student',
+          student: null,
+          matchedExpertName: null,
+          expert: null,
+          availableStudents: [],
+          matchingId: null,
+          matches: [],
+          studentChannel: null,
+          matchChannel: null,
+          daysOfWeek: DAYS,
+          dayLabels: DAY_LABELS,
+          scheduleForm: {},
+          scheduleData: {},
+          isAdmin: false,
+          adminStudents: [],
+          adminExperts: [],
+          adminMatches: [],
+          adminTimer: null,
+          isLongPressing: false
+        };
+      },
+      computed: {
+        matchedStudentName() {
+          if (!this.expert?.matched_student_id) return '';
+          const stu = this.availableStudents.find(s => s.id === this.expert.matched_student_id);
+          return stu?.name || '已匹配学员';
+        },
+        matchedStudentSchedule() {
+          if (!this.expert?.matched_student_id) return null;
+          const stu = this.availableStudents.find(s => s.id === this.expert.matched_student_id);
+          return stu ? parseSchedule(stu.schedule_image_url) : null;
+        }
+      },
+      methods: {
+        // ========== 认证与初始化 ==========
+        async initAuth() {
+          try {
+            const { data, error } = await supa.auth.signInAnonymously();
+            if (error) throw error;
+            this.user = data.user;
+            await this.checkRegistration();
+          } catch (e) {
+            console.error('认证失败', e);
+            this.view = 'loading';
+            setTimeout(() => this.initAuth(), 2000);
+          }
+        },
+        async checkRegistration() {
+          if (!this.user) return;
+          const { data: studentData } = await supa.from('students').select('*').eq('user_id', this.user.id).maybeSingle();
+          if (studentData) {
+            this.userRecord = { role: 'student', data: studentData };
+            this.student = studentData;
+            this.view = 'student';
+            this.scheduleData = parseSchedule(studentData.schedule_image_url);
+            this.initScheduleForm(this.scheduleData);
+            if (studentData.status === 'matched') {
+              await this.fetchMatchedExpert();
+            }
+            return;
+          }
+          const { data: expertData } = await supa.from('experts').select('*').eq('user_id', this.user.id).maybeSingle();
+          if (expertData) {
+            this.userRecord = { role: 'expert', data: expertData };
+            this.expert = expertData;
+            this.view = 'expert';
+            if (expertData.status === 'matched' && expertData.matched_student_id) {
+              const { data: stu } = await supa.from('students').select('*').eq('id', expertData.matched_student_id).single();
+              if (stu) this.availableStudents = [stu];
+            }
+            this.subscribeAvailableStudents();
+            return;
+          }
+          this.view = 'register';
+        },
+        async handleRegister() {
+          if (!this.regName.trim()) {
+            alert('请输入姓名');
+            return;
+          }
+          if (!this.user) return;
+          const role = this.regRole;
+          try {
+            if (role === 'student') {
+              const { data, error } = await supa.from('students').insert({
+                user_id: this.user.id,
+                name: this.regName,
+                schedule_image_url: '',
+                status: 'available',
+              }).select().single();
+              if (error) throw error;
+              this.userRecord = { role: 'student', data };
+              this.student = data;
+              this.view = 'student';
+              this.scheduleData = {};
+              this.initScheduleForm({});
+            } else {
+              const { data, error } = await supa.from('experts').insert({
+                user_id: this.user.id,
+                name: this.regName,
+                status: 'available',
+              }).select().single();
+              if (error) throw error;
+              this.userRecord = { role: 'expert', data };
+              this.expert = data;
+              this.view = 'expert';
+              this.subscribeAvailableStudents();
+            }
+          } catch (e) {
+            alert('登记失败: ' + e.message);
+          }
+        },
+
+        // ========== 课表编辑 ==========
+        initScheduleForm(data) {
+          const form = {};
+          DAYS.forEach(day => {
+            if (data && data[day]) {
+              form[day] = data[day].map(c => ({ time: c.time || '', course: c.course || '' }));
+            } else {
+              form[day] = [];
+            }
+          });
+          this.scheduleForm = form;
+        },
+        addCourse(day) {
+          if (!this.scheduleForm[day]) this.scheduleForm[day] = [];
+          this.scheduleForm[day].push({ time: '', course: '' });
+        },
+        removeCourse(day, index) {
+          this.scheduleForm[day].splice(index, 1);
+        },
+        async saveSchedule() {
+          if (!this.student || this.student.status === 'matched') {
+            alert('已匹配，不能修改课表');
+            return;
+          }
+          const schedule = {};
+          DAYS.forEach(day => {
+            schedule[day] = this.scheduleForm[day]
+              .filter(c => c.time.trim() !== '' || c.course.trim() !== '')
+              .map(c => ({ time: c.time.trim(), course: c.course.trim() }));
+          });
+          const scheduleJson = JSON.stringify(schedule);
+          try {
+            const { error } = await supa.from('students')
+              .update({ schedule_image_url: scheduleJson })
+              .eq('id', this.student.id);
+            if (error) throw error;
+            this.student.schedule_image_url = scheduleJson;
+            this.scheduleData = schedule;
+            alert('课表保存成功！');
+          } catch (e) {
+            alert('保存失败: ' + e.message);
+          }
+        },
+        getStudentSchedule(stu) {
+          return parseSchedule(stu.schedule_image_url);
+        },
+
+        // ========== 专家匹配 ==========
+        async subscribeAvailableStudents() {
+          const { data } = await supa.from('students').select('*').eq('status', 'available');
+          this.availableStudents = data || [];
+          this.studentChannel = supa.channel('students-channel')
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'students' }, () => {
+              this.refreshAvailableStudents();
+            })
+            .subscribe();
+        },
+        async refreshAvailableStudents() {
+          const { data } = await supa.from('students').select('*').eq('status', 'available');
+          this.availableStudents = data || [];
+        },
+        async matchStudent(student) {
+          if (this.expert?.status !== 'available') {
+            alert('您已匹配，不能重复匹配');
+            return;
+          }
+          if (!confirm(`确定选择“${student.name}”作为您的指导学员吗？`)) return;
+          this.matchingId = student.id;
+          try {
+            const { data, error } = await supa.rpc('match_student', {
+              p_expert_user_id: this.user.id,
+              p_student_id: student.id,
+            });
+            if (error) throw error;
+            if (data.code === 0) {
+              alert('匹配成功！');
+              this.expert.status = 'matched';
+              this.expert.matched_student_id = student.id;
+              this.availableStudents = this.availableStudents.filter(s => s.id !== student.id);
+            } else {
+              alert(data.msg || '匹配失败');
+            }
+          } catch (e) {
+            alert('操作失败: ' + e.message);
+          } finally {
+            this.matchingId = null;
+          }
+        },
+        async fetchMatchedExpert() {
+          const { data: matchData } = await supa.from('matches').select('*').eq('student_id', this.student.id).single();
+          if (matchData) {
+            this.matchedExpertName = matchData.expert_name;
+          }
+        },
+
+        // ========== 主页介绍 ==========
+        switchToHome() {
+          // 如果正在显示介绍页，则关闭介绍页并返回之前的身份主页
+          if (this.showIntro) {
+            this.closeIntro();
+            return;
+          }
+          // 否则打开介绍页
+          this.showIntro = true;
+          this.showBoard = false;
+        },
+        closeIntro() {
+          this.showIntro = false;
+          // 关闭介绍页后回到用户原本的身份主页
+          if (this.userRecord) {
+            this.view = this.userRecord.role;
+            if (this.userRecord.role === 'expert') {
+              this.refreshAvailableStudents();
+            } else if (this.userRecord.role === 'student') {
+              if (this.student && this.student.status === 'matched') {
+                this.fetchMatchedExpert();
+              }
+            }
+          } else {
+            // 未注册时回到注册页
+            this.view = 'register';
+          }
+        },
+
+        // ========== 公示板 ==========
+        switchToBoard() {
+          if (this.isLongPressing) {
+            this.isLongPressing = false;
+            return;
+          }
+          this.showBoard = !this.showBoard;
+          if (this.showBoard) {
+            this.fetchMatches();
+            if (!this.matchChannel) {
+              this.matchChannel = supa.channel('matches-channel')
+                .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'matches' }, (payload) => {
+                  this.matches.unshift(payload.new);
+                })
+                .subscribe();
+            }
+          }
+        },
+        async fetchMatches() {
+          const { data } = await supa.from('matches').select('*').order('created_at', { ascending: false });
+          this.matches = data || [];
+        },
+        formatTime(ts) {
+          if (!ts) return '';
+          const d = new Date(ts);
+          return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+        },
+
+        // ========== 管理员功能 ==========
+        startAdminTimer() {
+          this.cancelAdminTimer();
+          this.isLongPressing = false;
+          this.adminTimer = setTimeout(() => {
+            this.promptAdminPassword();
+          }, 2000);
+        },
+        cancelAdminTimer() {
+          if (this.adminTimer) {
+            clearTimeout(this.adminTimer);
+            this.adminTimer = null;
+          }
+        },
+        promptAdminPassword() {
+          this.isLongPressing = true;
+          const pwd = prompt('请输入管理密码：');
+          if (pwd === ADMIN_PASSWORD) {
+            this.isAdmin = true;
+            this.view = 'admin';
+            this.loadAdminData();
+          } else if (pwd !== null) {
+            alert('密码错误');
+          }
+          this.isLongPressing = false;
+        },
+        logoutAdmin() {
+          this.isAdmin = false;
+          if (this.userRecord) {
+            this.view = this.userRecord.role;
+          } else {
+            this.view = 'register';
+          }
+        },
+        async loadAdminData() {
+          try {
+            const [{ data: students }, { data: experts }, { data: matches }] = await Promise.all([
+              supa.from('students').select('*').order('created_at'),
+              supa.from('experts').select('*').order('created_at'),
+              supa.from('matches').select('*').order('created_at', { ascending: false })
+            ]);
+            this.adminStudents = students || [];
+            this.adminExperts = experts || [];
+            this.adminMatches = matches || [];
+          } catch (e) {
+            alert('加载管理数据失败: ' + e.message);
+          }
+        },
+        async deleteStudent(id) {
+          if (!confirm('确定删除该学员吗？关联的匹配记录和专家引用将被清除。')) return;
+          try {
+            await supa.from('matches').delete().eq('student_id', id);
+            const { data: linkedExperts } = await supa.from('experts').select('id').eq('matched_student_id', id);
+            if (linkedExperts && linkedExperts.length > 0) {
+              for (const exp of linkedExperts) {
+                await supa.from('experts').update({ status: 'available', matched_student_id: null }).eq('id', exp.id);
+              }
+            }
+            await supa.from('students').delete().eq('id', id);
+            alert('学员已删除');
+            await this.loadAdminData();
+          } catch (e) {
+            alert('删除学员失败: ' + e.message);
+          }
+        },
+        async deleteExpert(id) {
+          if (!confirm('确定删除该专家吗？关联的匹配记录也将被删除。')) return;
+          try {
+            await supa.from('matches').delete().eq('expert_id', id);
+            await supa.from('experts').delete().eq('id', id);
+            alert('专家已删除');
+            await this.loadAdminData();
+          } catch (e) {
+            alert('删除专家失败: ' + e.message);
+          }
+        },
+        async deleteMatch(id) {
+          if (!confirm('确定删除该匹配记录吗？')) return;
+          try {
+            await supa.from('matches').delete().eq('id', id);
+            alert('匹配记录已删除');
+            await this.loadAdminData();
+          } catch (e) {
+            alert('删除匹配记录失败: ' + e.message);
+          }
+        },
+        exportMatchesToExcel() {
+          if (!this.adminMatches || this.adminMatches.length === 0) {
+            alert('暂无匹配记录可导出');
+            return;
+          }
+          const data = this.adminMatches.map(m => ({
+            '专家姓名': m.expert_name,
+            '学员姓名': m.student_name,
+            '匹配时间': this.formatTime(m.created_at)
+          }));
+          const ws = XLSX.utils.json_to_sheet(data);
+          const wb = XLSX.utils.book_new();
+          XLSX.utils.book_append_sheet(wb, ws, '匹配结果');
+          XLSX.writeFile(wb, 'MSF匹配结果.xlsx');
+        },
+
+        cleanupChannels() {
+          if (this.studentChannel) supa.removeChannel(this.studentChannel);
+          if (this.matchChannel) supa.removeChannel(this.matchChannel);
+        }
+      },
+      async mounted() {
+        await this.initAuth();
+      },
+      beforeUnmount() {
+        this.cleanupChannels();
+        this.cancelAdminTimer();
+      }
+    });
+
+    app.mount('#app');
+  </script>
+</body>
+</html>
