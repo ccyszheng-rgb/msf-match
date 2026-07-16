@@ -485,19 +485,61 @@
         async saveSchedule() {
           const newSchedule = {};
           DAYS.forEach(day => {
-            newSchedule[day] = this.editDays[day].filter(c => c.time.trim() || c.course.trim()).map(c => ({ time: c.time.trim(), course: c.course.trim() }));
+            newSchedule[day] = this.editDays[day].filter(c => c.time.trim() || c.course.trim())
+              .map(c => ({ time: c.time.trim(), course: c.course.trim() }));
           });
           const json = JSON.stringify(newSchedule);
           try {
             const { error } = await supa.from('students').update({ schedule_image_url: json }).eq('id', this.student.id);
             if (error) throw error;
-            this.student.schedule_image_url = json; this.schedule = newSchedule; this.editing = false;
-            if (this.student.status === 'matched') {
-              const { data: match } = await supa.from('matches').select('*').eq('student_id', this.student.id).maybeSingle();
-              if (match) {
-                await supa.from('matches').update({ schedule_updated: true, schedule_updated_at: new Date().toISOString() }).eq('id', match.id);
+            this.student.schedule_image_url = json;
+            this.schedule = newSchedule;
+            this.editing = false;
+
+            // ---- 新增：同步匹配记录中的课程信息 ----
+            if (this.student.status === 'matched' && this.matchRecord) {
+              const originalCourseName = this.matchRecord.selected_course_name;
+              const originalTime = this.matchRecord.selected_course_time || ''; // 如 "周一 8:30-10:00"
+              // 提取星期几
+              const dayMatch = originalTime.match(/^(周一|周二|周三|周四|周五|周六|周日)/);
+              const dayLabel = dayMatch ? dayMatch[1] : null;
+              const dayKey = Object.keys(DAY_LABELS).find(key => DAY_LABELS[key] === dayLabel);
+
+              let updatedTime = originalTime;
+              let updatedCourseName = originalCourseName;
+              let found = false;
+
+              if (dayKey && originalCourseName) {
+                const courses = newSchedule[dayKey] || [];
+                const matchedCourse = courses.find(c => c.course === originalCourseName);
+                if (matchedCourse) {
+                  // 找到同名课程，更新时间（可能时间变了）
+                  updatedTime = `${dayLabel} ${matchedCourse.time}`;
+                  updatedCourseName = matchedCourse.course; // 课程名可能不变，但保留新值
+                  found = true;
+                }
               }
+
+              // 更新匹配记录
+              const updateData = {
+                schedule_updated: true,
+                schedule_updated_at: new Date().toISOString(),
+                schedule_image_url: json // 同时更新课表快照
+              };
+              if (found) {
+                updateData.selected_course_time = updatedTime;
+                updateData.selected_course_name = updatedCourseName;
+                // 同步更新本地 matchRecord 以便界面显示
+                this.matchRecord.selected_course_time = updatedTime;
+                this.matchRecord.selected_course_name = updatedCourseName;
+                this.matchedCourseInfo = `${updatedTime} ${updatedCourseName}`;
+              }
+              await supa.from('matches').update(updateData).eq('id', this.matchRecord.id);
+              this.matchRecord.schedule_updated = true;
+              this.matchRecord.schedule_updated_at = new Date().toISOString();
             }
+            // -------------------------------------
+
             alert('课表保存成功');
           } catch (e) { alert('保存失败: ' + e.message); }
         },
@@ -526,7 +568,6 @@
             });
             if (error) throw error;
             if (data.code === 0) {
-              // 刷新列表
               await this.loadMyMatches();
               this.availableStudents = this.availableStudents.filter(s => s.id !== student.id);
               alert('匹配成功！');
@@ -536,11 +577,13 @@
         async fetchMatchedExpert() {
           const { data: matchData } = await supa.from('matches').select('*').eq('student_id', this.student.id).single();
           if (matchData) {
+            this.matchRecord = matchData;
             this.matchedExpertName = matchData.expert_name;
             if (matchData.selected_course_name) {
               this.matchedCourseInfo = `${matchData.selected_course_time} ${matchData.selected_course_name}`;
+            } else {
+              this.matchedCourseInfo = '';
             }
-            this.matchRecord = matchData;
           }
         },
 
