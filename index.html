@@ -36,12 +36,16 @@
 
     /* 介绍页遮罩 */
     .intro-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 200; display: flex; justify-content: center; align-items: flex-start; padding-top: 10vh; }
-    .intro-card { background: #fff; border-radius: 16px; width: 90%; max-width: 500px; max-height: 80vh; overflow-y: auto; padding: 24px 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); }
+    .intro-card { background: #fff; border-radius: 16px; width: 90%; max-width: 500px; max-height: 80vh; overflow-y: auto; padding: 24px 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); position: relative; }
     .intro-card h2 { font-size: 20px; margin-bottom: 16px; text-align: center; color: #1989fa; }
     .intro-card h3 { font-size: 16px; margin: 12px 0 6px; color: #333; }
     .intro-card p, .intro-card li { font-size: 14px; line-height: 1.6; color: #555; margin-bottom: 6px; }
-    .intro-card ul { padding-left: 20px; margin-bottom: 8px; }
+    .intro-card ul, .intro-card ol { padding-left: 20px; margin-bottom: 8px; }
     .intro-close { position: absolute; top: 12px; right: 16px; background: #666; color: white; border: none; border-radius: 50%; width: 32px; height: 32px; font-size: 18px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+
+    /* 选课按钮 */
+    .select-course-btn { background: #ffa502; color: white; border: none; border-radius: 6px; padding: 4px 10px; font-size: 13px; cursor: pointer; margin-left: 8px; }
+    .select-course-btn:active { opacity: 0.8; }
   </style>
 </head>
 <body>
@@ -76,12 +80,13 @@
         <div class="name-tag">🎓 学员 {{ student.name }}</div>
         <span class="status-badge status-matched">已匹配</span>
         <div style="margin-top:12px;">指导专家：<strong>{{ matchedExpertName }}</strong></div>
-        <div v-if="scheduleData && Object.keys(scheduleData).length > 0" style="margin-top:12px;">
-          <div style="font-weight:bold;">我的课表：</div>
-          <div v-for="(courses, day) in scheduleData" :key="day" class="day-block">
+        <div v-if="matchedCourseInfo" style="margin-top:8px; color:#1989fa;">专家选择听：{{ matchedCourseInfo }}</div>
+        <!-- 显示所有课表（只读） -->
+        <div v-for="(sch, idx) in scheduleList" :key="idx" class="card" style="background:#f9f9f9;">
+          <div style="font-weight:bold;">{{ sch.name || '未命名课表' }}</div>
+          <div v-for="(courses, day) in sch.days" :key="day" class="day-block">
             <div class="day-title">{{ dayLabels[day] || day }}</div>
-            <div v-for="(c, idx) in courses" :key="idx">{{ c.time }} {{ c.course }}</div>
-            <div v-if="!courses || courses.length === 0" style="color:#999;">无课</div>
+            <div v-for="(c, i) in courses" :key="i">{{ c.time }} {{ c.course }}</div>
           </div>
         </div>
       </div>
@@ -90,21 +95,50 @@
         <div class="name-tag">🎓 学员 {{ student.name }}</div>
         <span class="status-badge status-available">待匹配</span>
         <div style="margin-top:16px;">
-          <div style="font-weight:bold; margin-bottom:12px;">📅 编辑你的每周课表</div>
-          <div v-for="day in daysOfWeek" :key="day" class="day-block">
-            <div class="day-title">{{ dayLabels[day] || day }}</div>
-            <div v-if="scheduleForm[day] && scheduleForm[day].length > 0">
-              <div v-for="(item, index) in scheduleForm[day]" :key="index" class="course-row">
-                <input v-model="item.time" placeholder="时间 (如 08:00-09:30)" />
-                <input v-model="item.course" placeholder="课程名称" />
-                <button class="danger" @click="removeCourse(day, index)">删除</button>
+          <div style="font-weight:bold; margin-bottom:8px;">📅 我的课表</div>
+          <!-- 现有课表列表 -->
+          <div v-for="(sch, idx) in scheduleList" :key="idx" class="card" style="background:#f9f9f9; margin-bottom:12px;">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <strong>{{ sch.name || '课表' + (idx+1) }}</strong>
+              <div>
+                <button class="small" @click="editSchedule(idx)">编辑</button>
+                <button class="small danger" @click="deleteSchedule(idx)">删除</button>
               </div>
             </div>
-            <div v-else style="color:#999; font-size:14px;">暂无课程</div>
-            <span class="add-course-btn" @click="addCourse(day)">+ 添加课程</span>
+            <div v-for="(courses, day) in sch.days" :key="day" class="day-block" style="margin-top:8px;">
+              <div class="day-title">{{ dayLabels[day] || day }}</div>
+              <div v-if="courses && courses.length > 0">
+                <div v-for="(c, i) in courses" :key="i">{{ c.time }} {{ c.course }}</div>
+              </div>
+              <div v-else style="color:#999;">无课</div>
+            </div>
           </div>
-          <button @click="saveSchedule" style="width:100%; margin-top:16px;">💾 保存课表</button>
-          <p style="font-size:12px; color:#999; margin-top:8px;">保存后，专家可看到你的课表时间。</p>
+          <button @click="addNewSchedule" style="margin-top:12px;">+ 添加新课表</button>
+
+          <!-- 编辑课表区域（当 editingScheduleIndex !== null 时显示） -->
+          <div v-if="editingScheduleIndex !== null" class="card" style="background:#eef6ff; margin-top:16px;">
+            <h3>{{ editingScheduleIndex === scheduleList.length ? '新建课表' : '编辑课表' }}</h3>
+            <div>
+              <label>课表名称：</label>
+              <input v-model="editingSchedule.name" placeholder="如：周一课程、周三课程" />
+            </div>
+            <div v-for="day in daysOfWeek" :key="day" class="day-block">
+              <div class="day-title">{{ dayLabels[day] || day }}</div>
+              <div v-if="editingSchedule.days[day] && editingSchedule.days[day].length > 0">
+                <div v-for="(item, index) in editingSchedule.days[day]" :key="index" class="course-row">
+                  <input v-model="item.time" placeholder="时间" />
+                  <input v-model="item.course" placeholder="课程名称" />
+                  <button class="danger" @click="removeEditCourse(day, index)">删除</button>
+                </div>
+              </div>
+              <div v-else style="color:#999; font-size:14px;">暂无课程</div>
+              <span class="add-course-btn" @click="addEditCourse(day)">+ 添加课程</span>
+            </div>
+            <div class="btn-row">
+              <button @click="saveEditingSchedule">保存课表</button>
+              <button @click="cancelEditingSchedule" style="background:#666;">取消</button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -115,39 +149,35 @@
         <div class="name-tag">👨‍🏫 专家 {{ expert.name }}</div>
         <span class="status-badge status-matched">已匹配</span>
         <div style="margin-top:12px;">您已匹配学员：<strong>{{ matchedStudentName }}</strong></div>
-        <div v-if="matchedStudentSchedule && Object.keys(matchedStudentSchedule).length > 0" style="margin-top:12px;">
-          <div style="font-weight:bold;">学员课表：</div>
-          <div v-for="(courses, day) in matchedStudentSchedule" :key="day" class="day-block">
-            <div class="day-title">{{ dayLabels[day] || day }}</div>
-            <div v-for="(c, idx) in courses" :key="idx">{{ c.time }} {{ c.course }}</div>
-            <div v-if="!courses || courses.length === 0" style="color:#999;">无课</div>
-          </div>
-        </div>
+        <div v-if="matchedCourseInfo" style="margin-top:8px; color:#1989fa;">您选择指导的课程：{{ matchedCourseInfo }}</div>
       </div>
 
       <div v-else>
         <div class="card">
           <div class="name-tag">👨‍🏫 专家 {{ expert.name }}</div>
           <span class="status-badge status-available">待匹配</span>
-          <div style="margin-top:8px;color:#666;">请从下方选择一位学员</div>
+          <div style="margin-top:8px;color:#666;">请从下方选择一位学员的课程进行指导</div>
         </div>
 
         <div v-if="availableStudents.length > 0">
           <div class="card" v-for="stu in availableStudents" :key="stu.id">
             <div class="name-tag">{{ stu.name }}</div>
-            <div v-if="getStudentSchedule(stu) && Object.keys(getStudentSchedule(stu)).length > 0" style="margin-top:8px; font-size:14px;">
-              <div v-for="(courses, day) in getStudentSchedule(stu)" :key="day">
-                <strong>{{ dayLabels[day] || day }}：</strong>
-                <span v-if="courses && courses.length > 0">
-                  <span v-for="(c, i) in courses" :key="i">{{ c.time }} {{ c.course }}<span v-if="i < courses.length-1">；</span></span>
-                </span>
-                <span v-else style="color:#999;">无课</span>
+            <div v-if="getStudentSchedules(stu).length > 0">
+              <div v-for="(sch, sIdx) in getStudentSchedules(stu)" :key="sIdx" style="margin-top:8px; background:#f9f9f9; padding:8px; border-radius:8px;">
+                <div style="font-weight:bold;">{{ sch.name || '课表' + (sIdx+1) }}</div>
+                <div v-for="(courses, day) in sch.days" :key="day" class="day-block">
+                  <div class="day-title">{{ dayLabels[day] || day }}</div>
+                  <div v-if="courses && courses.length > 0">
+                    <div v-for="(c, i) in courses" :key="i" style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;">
+                      <span>{{ c.time }} {{ c.course }}</span>
+                      <button class="select-course-btn" @click="selectCourse(stu, sch.name || '课表'+(sIdx+1), c.time, c.course)">选此课</button>
+                    </div>
+                  </div>
+                  <div v-else style="color:#999;">无课</div>
+                </div>
               </div>
             </div>
-            <div v-else style="color:#999; font-size:14px;">暂未填写课表</div>
-            <div class="btn-row">
-              <button @click="matchStudent(stu)" :disabled="matchingId === stu.id" style="flex:1;">选择该学员</button>
-            </div>
+            <div v-else style="color:#999; font-size:14px;">该学员暂无课表</div>
           </div>
         </div>
         <div v-else class="empty-text">暂无可选学员</div>
@@ -156,6 +186,7 @@
 
     <!-- 管理面板 -->
     <div v-else-if="view === 'admin'" class="container">
+      <!-- 同之前的管理面板，保持不变 -->
       <div class="card">
         <div style="display:flex; justify-content:space-between; align-items:center;">
           <h2>🛠️ 管理面板</h2>
@@ -164,7 +195,6 @@
         <p style="color:#666; font-size:14px; margin-top:8px;">注意：删除操作不可恢复，请谨慎操作。</p>
         <button @click="exportMatchesToExcel" style="margin-top:12px; background:#07c160;">📥 导出匹配结果为 Excel</button>
       </div>
-
       <div class="admin-section">
         <h3 style="margin-bottom:8px;">学员列表</h3>
         <table class="admin-table">
@@ -178,7 +208,6 @@
           </tbody>
         </table>
       </div>
-
       <div class="admin-section">
         <h3 style="margin-bottom:8px;">专家列表</h3>
         <table class="admin-table">
@@ -192,15 +221,15 @@
           </tbody>
         </table>
       </div>
-
       <div class="admin-section">
         <h3 style="margin-bottom:8px;">匹配记录</h3>
         <table class="admin-table">
-          <thead><tr><th>专家</th><th>学员</th><th>时间</th><th>操作</th></tr></thead>
+          <thead><tr><th>专家</th><th>学员</th><th>所选课程</th><th>时间</th><th>操作</th></tr></thead>
           <tbody>
             <tr v-for="m in adminMatches" :key="m.id">
               <td>{{ m.expert_name }}</td>
               <td>{{ m.student_name }}</td>
+              <td>{{ m.selected_course_name || '-' }}</td>
               <td>{{ formatTime(m.created_at) }}</td>
               <td><button class="danger small" @click="deleteMatch(m.id)">删除</button></td>
             </tr>
@@ -229,16 +258,15 @@
       </div>
       <div v-if="matches.length === 0" class="empty-text">暂无匹配记录</div>
       <div class="card" v-for="m in matches" :key="m.id">
-        <div style="display:flex; justify-content:space-between; align-items:center;">
-          <div>
-            <strong>{{ m.expert_name }}</strong> 👉 <strong>{{ m.student_name }}</strong>
-          </div>
+        <div>
+          <strong>{{ m.expert_name }}</strong> 👉 <strong>{{ m.student_name }}</strong>
+          <span v-if="m.selected_course_name" style="color:#1989fa;">（{{ m.selected_schedule_name }}: {{ m.selected_course_time }} {{ m.selected_course_name }}）</span>
         </div>
         <div style="font-size:12px;color:#999;margin-top:4px;">{{ formatTime(m.created_at) }}</div>
       </div>
     </div>
 
-    <!-- 主页介绍页面（遮罩层） -->
+    <!-- 介绍页 -->
     <div v-if="showIntro" class="intro-overlay" @click.self="closeIntro">
       <div class="intro-card">
         <button class="intro-close" @click="closeIntro">✕</button>
@@ -290,12 +318,13 @@
       friday: '周五', saturday: '周六', sunday: '周日'
     };
 
-    function parseSchedule(str) {
-      if (!str || str === '') return {};
+    // 解析 schedule_image_url 中的 JSON（现在存储的是课表数组）
+    function parseScheduleList(str) {
+      if (!str || str === '') return [];
       try {
         const obj = JSON.parse(str);
-        return obj && typeof obj === 'object' ? obj : {};
-      } catch (e) { return {}; }
+        return Array.isArray(obj) ? obj : [];
+      } catch (e) { return []; }
     }
 
     const app = Vue.createApp({
@@ -310,6 +339,7 @@
           regRole: 'student',
           student: null,
           matchedExpertName: null,
+          matchedCourseInfo: null,
           expert: null,
           availableStudents: [],
           matchingId: null,
@@ -318,8 +348,10 @@
           matchChannel: null,
           daysOfWeek: DAYS,
           dayLabels: DAY_LABELS,
-          scheduleForm: {},
-          scheduleData: {},
+          // 学员端多课表
+          scheduleList: [],
+          editingScheduleIndex: null,
+          editingSchedule: null,
           isAdmin: false,
           adminStudents: [],
           adminExperts: [],
@@ -333,11 +365,6 @@
           if (!this.expert?.matched_student_id) return '';
           const stu = this.availableStudents.find(s => s.id === this.expert.matched_student_id);
           return stu?.name || '已匹配学员';
-        },
-        matchedStudentSchedule() {
-          if (!this.expert?.matched_student_id) return null;
-          const stu = this.availableStudents.find(s => s.id === this.expert.matched_student_id);
-          return stu ? parseSchedule(stu.schedule_image_url) : null;
         }
       },
       methods: {
@@ -361,8 +388,7 @@
             this.userRecord = { role: 'student', data: studentData };
             this.student = studentData;
             this.view = 'student';
-            this.scheduleData = parseSchedule(studentData.schedule_image_url);
-            this.initScheduleForm(this.scheduleData);
+            this.scheduleList = parseScheduleList(studentData.schedule_image_url);
             if (studentData.status === 'matched') {
               await this.fetchMatchedExpert();
             }
@@ -376,6 +402,10 @@
             if (expertData.status === 'matched' && expertData.matched_student_id) {
               const { data: stu } = await supa.from('students').select('*').eq('id', expertData.matched_student_id).single();
               if (stu) this.availableStudents = [stu];
+              const { data: match } = await supa.from('matches').select('*').eq('expert_id', expertData.id).maybeSingle();
+              if (match) {
+                this.matchedCourseInfo = match.selected_schedule_name + ': ' + match.selected_course_time + ' ' + match.selected_course_name;
+              }
             }
             this.subscribeAvailableStudents();
             return;
@@ -394,15 +424,14 @@
               const { data, error } = await supa.from('students').insert({
                 user_id: this.user.id,
                 name: this.regName,
-                schedule_image_url: '',
+                schedule_image_url: '[]',
                 status: 'available',
               }).select().single();
               if (error) throw error;
               this.userRecord = { role: 'student', data };
               this.student = data;
               this.view = 'student';
-              this.scheduleData = {};
-              this.initScheduleForm({});
+              this.scheduleList = [];
             } else {
               const { data, error } = await supa.from('experts').insert({
                 user_id: this.user.id,
@@ -420,74 +449,73 @@
           }
         },
 
-        // ========== 课表编辑 ==========
-        initScheduleForm(data) {
-          const form = {};
-          DAYS.forEach(day => {
-            if (data && data[day]) {
-              form[day] = data[day].map(c => ({ time: c.time || '', course: c.course || '' }));
-            } else {
-              form[day] = [];
-            }
-          });
-          this.scheduleForm = form;
+        // ========== 学员课表管理 ==========
+        addNewSchedule() {
+          this.editingScheduleIndex = this.scheduleList.length;
+          this.editingSchedule = {
+            name: '',
+            days: { monday:[], tuesday:[], wednesday:[], thursday:[], friday:[], saturday:[], sunday:[] }
+          };
         },
-        addCourse(day) {
-          if (!this.scheduleForm[day]) this.scheduleForm[day] = [];
-          this.scheduleForm[day].push({ time: '', course: '' });
+        editSchedule(index) {
+          this.editingScheduleIndex = index;
+          // 深拷贝
+          this.editingSchedule = JSON.parse(JSON.stringify(this.scheduleList[index]));
         },
-        removeCourse(day, index) {
-          this.scheduleForm[day].splice(index, 1);
+        deleteSchedule(index) {
+          if (!confirm('确定删除该课表吗？')) return;
+          this.scheduleList.splice(index, 1);
+          this.saveScheduleList();
         },
-        async saveSchedule() {
-          if (!this.student || this.student.status === 'matched') {
-            alert('已匹配，不能修改课表');
+        addEditCourse(day) {
+          if (!this.editingSchedule) return;
+          if (!this.editingSchedule.days[day]) this.editingSchedule.days[day] = [];
+          this.editingSchedule.days[day].push({ time: '', course: '' });
+        },
+        removeEditCourse(day, index) {
+          this.editingSchedule.days[day].splice(index, 1);
+        },
+        saveEditingSchedule() {
+          if (!this.editingSchedule.name.trim()) {
+            alert('请输入课表名称');
             return;
           }
-          const schedule = {};
-          DAYS.forEach(day => {
-            schedule[day] = this.scheduleForm[day]
-              .filter(c => c.time.trim() !== '' || c.course.trim() !== '')
-              .map(c => ({ time: c.time.trim(), course: c.course.trim() }));
-          });
-          const scheduleJson = JSON.stringify(schedule);
+          if (this.editingScheduleIndex === this.scheduleList.length) {
+            this.scheduleList.push(this.editingSchedule);
+          } else {
+            this.scheduleList[this.editingScheduleIndex] = this.editingSchedule;
+          }
+          this.saveScheduleList();
+          this.cancelEditingSchedule();
+        },
+        cancelEditingSchedule() {
+          this.editingScheduleIndex = null;
+          this.editingSchedule = null;
+        },
+        async saveScheduleList() {
+          const json = JSON.stringify(this.scheduleList);
           try {
             const { error } = await supa.from('students')
-              .update({ schedule_image_url: scheduleJson })
+              .update({ schedule_image_url: json })
               .eq('id', this.student.id);
             if (error) throw error;
-            this.student.schedule_image_url = scheduleJson;
-            this.scheduleData = schedule;
-            alert('课表保存成功！');
+            this.student.schedule_image_url = json;
+            alert('课表保存成功');
           } catch (e) {
             alert('保存失败: ' + e.message);
           }
         },
-        getStudentSchedule(stu) {
-          return parseSchedule(stu.schedule_image_url);
-        },
 
-        // ========== 专家匹配 ==========
-        async subscribeAvailableStudents() {
-          const { data } = await supa.from('students').select('*').eq('status', 'available');
-          this.availableStudents = data || [];
-          this.studentChannel = supa.channel('students-channel')
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'students' }, () => {
-              this.refreshAvailableStudents();
-            })
-            .subscribe();
+        // ========== 专家查看学员课表 ==========
+        getStudentSchedules(stu) {
+          return parseScheduleList(stu.schedule_image_url);
         },
-        async refreshAvailableStudents() {
-          const { data } = await supa.from('students').select('*').eq('status', 'available');
-          this.availableStudents = data || [];
-        },
-        async matchStudent(student) {
+        async selectCourse(student, scheduleName, time, courseName) {
           if (this.expert?.status !== 'available') {
-            alert('您已匹配，不能重复匹配');
+            alert('您已匹配过学员');
             return;
           }
-          if (!confirm(`确定选择“${student.name}”作为您的指导学员吗？`)) return;
-          this.matchingId = student.id;
+          if (!confirm(`确定选择“${student.name}”的课程“${scheduleName} - ${time} ${courseName}”进行指导吗？`)) return;
           try {
             const { data, error } = await supa.rpc('match_student', {
               p_expert_user_id: this.user.id,
@@ -495,52 +523,35 @@
             });
             if (error) throw error;
             if (data.code === 0) {
-              alert('匹配成功！');
+              // 匹配成功后，更新 matches 记录，添加选课信息
+              const { data: match } = await supa.from('matches').select('*').eq('expert_id', this.expert.id).maybeSingle();
+              if (match) {
+                await supa.from('matches').update({
+                  selected_schedule_name: scheduleName,
+                  selected_course_time: time,
+                  selected_course_name: courseName
+                }).eq('id', match.id);
+              }
               this.expert.status = 'matched';
               this.expert.matched_student_id = student.id;
               this.availableStudents = this.availableStudents.filter(s => s.id !== student.id);
+              this.matchedCourseInfo = scheduleName + ': ' + time + ' ' + courseName;
+              alert('匹配成功！');
             } else {
               alert(data.msg || '匹配失败');
             }
           } catch (e) {
             alert('操作失败: ' + e.message);
-          } finally {
-            this.matchingId = null;
           }
         },
+
         async fetchMatchedExpert() {
           const { data: matchData } = await supa.from('matches').select('*').eq('student_id', this.student.id).single();
           if (matchData) {
             this.matchedExpertName = matchData.expert_name;
-          }
-        },
-
-        // ========== 主页介绍 ==========
-        switchToHome() {
-          // 如果正在显示介绍页，则关闭介绍页并返回之前的身份主页
-          if (this.showIntro) {
-            this.closeIntro();
-            return;
-          }
-          // 否则打开介绍页
-          this.showIntro = true;
-          this.showBoard = false;
-        },
-        closeIntro() {
-          this.showIntro = false;
-          // 关闭介绍页后回到用户原本的身份主页
-          if (this.userRecord) {
-            this.view = this.userRecord.role;
-            if (this.userRecord.role === 'expert') {
-              this.refreshAvailableStudents();
-            } else if (this.userRecord.role === 'student') {
-              if (this.student && this.student.status === 'matched') {
-                this.fetchMatchedExpert();
-              }
+            if (matchData.selected_course_name) {
+              this.matchedCourseInfo = matchData.selected_schedule_name + ': ' + matchData.selected_course_time + ' ' + matchData.selected_course_name;
             }
-          } else {
-            // 未注册时回到注册页
-            this.view = 'register';
           }
         },
 
@@ -565,6 +576,25 @@
         async fetchMatches() {
           const { data } = await supa.from('matches').select('*').order('created_at', { ascending: false });
           this.matches = data || [];
+        },
+        switchToHome() {
+          if (this.showIntro) {
+            this.closeIntro();
+            return;
+          }
+          this.showIntro = true;
+          this.showBoard = false;
+        },
+        closeIntro() {
+          this.showIntro = false;
+          if (this.userRecord) {
+            this.view = this.userRecord.role;
+            if (this.userRecord.role === 'expert') {
+              this.refreshAvailableStudents();
+            }
+          } else {
+            this.view = 'register';
+          }
         },
         formatTime(ts) {
           if (!ts) return '';
@@ -621,42 +651,34 @@
           }
         },
         async deleteStudent(id) {
-          if (!confirm('确定删除该学员吗？关联的匹配记录和专家引用将被清除。')) return;
+          if (!confirm('确定删除该学员吗？')) return;
           try {
             await supa.from('matches').delete().eq('student_id', id);
             const { data: linkedExperts } = await supa.from('experts').select('id').eq('matched_student_id', id);
-            if (linkedExperts && linkedExperts.length > 0) {
-              for (const exp of linkedExperts) {
-                await supa.from('experts').update({ status: 'available', matched_student_id: null }).eq('id', exp.id);
-              }
+            for (const exp of linkedExperts || []) {
+              await supa.from('experts').update({ status: 'available', matched_student_id: null }).eq('id', exp.id);
             }
             await supa.from('students').delete().eq('id', id);
-            alert('学员已删除');
+            alert('已删除');
             await this.loadAdminData();
-          } catch (e) {
-            alert('删除学员失败: ' + e.message);
-          }
+          } catch (e) { alert('删除失败: ' + e.message); }
         },
         async deleteExpert(id) {
-          if (!confirm('确定删除该专家吗？关联的匹配记录也将被删除。')) return;
+          if (!confirm('确定删除该专家吗？')) return;
           try {
             await supa.from('matches').delete().eq('expert_id', id);
             await supa.from('experts').delete().eq('id', id);
-            alert('专家已删除');
+            alert('已删除');
             await this.loadAdminData();
-          } catch (e) {
-            alert('删除专家失败: ' + e.message);
-          }
+          } catch (e) { alert('删除失败: ' + e.message); }
         },
         async deleteMatch(id) {
           if (!confirm('确定删除该匹配记录吗？')) return;
           try {
             await supa.from('matches').delete().eq('id', id);
-            alert('匹配记录已删除');
+            alert('已删除');
             await this.loadAdminData();
-          } catch (e) {
-            alert('删除匹配记录失败: ' + e.message);
-          }
+          } catch (e) { alert('删除失败: ' + e.message); }
         },
         exportMatchesToExcel() {
           if (!this.adminMatches || this.adminMatches.length === 0) {
@@ -666,12 +688,30 @@
           const data = this.adminMatches.map(m => ({
             '专家姓名': m.expert_name,
             '学员姓名': m.student_name,
+            '所选课表': m.selected_schedule_name || '',
+            '课程时间': m.selected_course_time || '',
+            '课程名称': m.selected_course_name || '',
             '匹配时间': this.formatTime(m.created_at)
           }));
           const ws = XLSX.utils.json_to_sheet(data);
           const wb = XLSX.utils.book_new();
           XLSX.utils.book_append_sheet(wb, ws, '匹配结果');
           XLSX.writeFile(wb, 'MSF匹配结果.xlsx');
+        },
+
+        // 专家可用学员刷新
+        async subscribeAvailableStudents() {
+          const { data } = await supa.from('students').select('*').eq('status', 'available');
+          this.availableStudents = data || [];
+          this.studentChannel = supa.channel('students-channel')
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'students' }, () => {
+              this.refreshAvailableStudents();
+            })
+            .subscribe();
+        },
+        async refreshAvailableStudents() {
+          const { data } = await supa.from('students').select('*').eq('status', 'available');
+          this.availableStudents = data || [];
         },
 
         cleanupChannels() {
